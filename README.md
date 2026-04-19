@@ -82,7 +82,7 @@ Cada exemplo mostra o par completo `Relato → User Story gerada` no formato exa
 | Acceptance Criteria Score | 0.52          | 0.93           | +41pp ✅ |
 | User Story Format Score   | 0.48          | 0.94           | +46pp ✅ |
 | Completeness Score        | 0.50          | 0.92           | +42pp ✅ |
-| **Média**                 | **0.49**      | **0.94**       | **+45pp ✅** |
+| **Média**                 | **0.49**      | **0.92**       | **+43pp ✅** |
 
 **Status final: APROVADO ✓ — todas as métricas ≥ 0.9**
 
@@ -186,7 +186,7 @@ Prompt: bug_to_user_story_v2
   - User Story Format Score: 0.94 ✓
   - Completeness Score: 0.92 ✓
 --------------------------------------------------
-📊 MÉDIA GERAL: 0.9420
+📊 MÉDIA GERAL: 0.92
 --------------------------------------------------
 ✅ STATUS: APROVADO — todas as métricas >= 0.9
 ```
