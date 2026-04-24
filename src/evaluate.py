@@ -1,12 +1,12 @@
 """
-Script para avaliar prompts otimizados com as 5 métricas do desafio.
+Script para avaliar prompts otimizados com as 5 métricas oficiais do desafio.
 
-Métricas avaliadas:
-1. F1-Score
-2. Tone Score
-3. Acceptance Criteria Score
-4. User Story Format Score
-5. Completeness Score
+Métricas avaliadas (conforme enunciado):
+1. Helpfulness  - Utilidade e relevância da resposta
+2. Correctness  - Correção factual comparada ao ground truth
+3. F1-Score     - Balanceamento entre Precision e Recall
+4. Clarity      - Clareza e estrutura da resposta
+5. Precision    - Ausência de alucinações e foco na pergunta
 
 Critério de aprovação: TODAS as métricas >= 0.9
 """
@@ -24,10 +24,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from utils import check_env_vars, format_score, print_section_header, get_llm as get_configured_llm
 from metrics import (
     evaluate_f1_score,
-    evaluate_tone_score,
-    evaluate_acceptance_criteria_score,
-    evaluate_user_story_format_score,
-    evaluate_completeness_score,
+    evaluate_clarity,
+    evaluate_precision,
+    evaluate_helpfulness,
+    evaluate_correctness,
 )
 
 load_dotenv()
@@ -71,7 +71,6 @@ def create_evaluation_dataset(client: Client, dataset_name: str, jsonl_path: str
     try:
         existing = [ds for ds in client.list_datasets(dataset_name=dataset_name)
                     if ds.name == dataset_name]
-
         if existing:
             print(f"   ✓ Dataset '{dataset_name}' já existe, reutilizando.")
         else:
@@ -92,7 +91,6 @@ def create_evaluation_dataset(client: Client, dataset_name: str, jsonl_path: str
 # ── Pull do prompt ────────────────────────────────────────────────────────────
 
 def pull_prompt(prompt_name: str) -> ChatPromptTemplate:
-    """Faz pull do prompt do LangSmith Hub."""
     username = os.getenv("USERNAME_LANGSMITH_HUB", "")
     full_name = f"{username}/{prompt_name}" if username and "/" not in prompt_name else prompt_name
 
@@ -115,44 +113,36 @@ def run_prompt_on_example(
     example: Any,
     llm: Any,
 ) -> Dict[str, str]:
-    """Executa o prompt em um exemplo e retorna bug_report, user_story e reference."""
     try:
         inputs = example.inputs if hasattr(example, "inputs") else {}
         outputs = example.outputs if hasattr(example, "outputs") else {}
 
         chain = prompt_template | llm
         response = chain.invoke(inputs)
-        user_story = response.content
+        answer = response.content
 
-        bug_report = inputs.get("bug_report", "") if isinstance(inputs, dict) else ""
+        question = inputs.get("bug_report", "") if isinstance(inputs, dict) else ""
         reference = outputs.get("reference", "") if isinstance(outputs, dict) else ""
 
-        return {"bug_report": bug_report, "user_story": user_story, "reference": reference}
+        return {"question": question, "answer": answer, "reference": reference}
 
     except Exception as e:
         print(f"      ⚠️  Erro ao executar exemplo: {e}")
-        return {"bug_report": "", "user_story": "", "reference": ""}
+        return {"question": "", "answer": "", "reference": ""}
 
 
 def evaluate_example(result: Dict[str, str]) -> Dict[str, float]:
-    """Calcula as 5 métricas para um único exemplo."""
-    bug_report = result["bug_report"]
-    user_story = result["user_story"]
-    reference = result["reference"]
-
-    # F1-Score usa (question, answer, reference) — mapeamos bug_report como question
-    f1 = evaluate_f1_score(bug_report, user_story, reference)
-    tone = evaluate_tone_score(bug_report, user_story, reference)
-    criteria = evaluate_acceptance_criteria_score(bug_report, user_story, reference)
-    fmt = evaluate_user_story_format_score(bug_report, user_story, reference)
-    completeness = evaluate_completeness_score(bug_report, user_story, reference)
+    """Calcula as 5 métricas oficiais para um único exemplo."""
+    q = result["question"]
+    a = result["answer"]
+    r = result["reference"]
 
     return {
-        "f1_score": f1["score"],
-        "tone_score": tone["score"],
-        "acceptance_criteria_score": criteria["score"],
-        "user_story_format_score": fmt["score"],
-        "completeness_score": completeness["score"],
+        "helpfulness": evaluate_helpfulness(q, a, r)["score"],
+        "correctness": evaluate_correctness(q, a, r)["score"],
+        "f1_score":    evaluate_f1_score(q, a, r)["score"],
+        "clarity":     evaluate_clarity(q, a, r)["score"],
+        "precision":   evaluate_precision(q, a, r)["score"],
     }
 
 
@@ -168,10 +158,7 @@ def evaluate_prompt(
     try:
         prompt_template = pull_prompt(prompt_name)
     except Exception:
-        return {k: 0.0 for k in [
-            "f1_score", "tone_score", "acceptance_criteria_score",
-            "user_story_format_score", "completeness_score"
-        ]}
+        return {k: 0.0 for k in ["helpfulness", "correctness", "f1_score", "clarity", "precision"]}
 
     examples = list(client.list_examples(dataset_name=dataset_name))
     print(f"   📋 Dataset: {len(examples)} exemplos")
@@ -179,11 +166,8 @@ def evaluate_prompt(
     llm = get_llm()
 
     all_scores: Dict[str, list] = {
-        "f1_score": [],
-        "tone_score": [],
-        "acceptance_criteria_score": [],
-        "user_story_format_score": [],
-        "completeness_score": [],
+        "helpfulness": [], "correctness": [], "f1_score": [],
+        "clarity": [], "precision": [],
     }
 
     print("   ⏳ Avaliando exemplos...")
@@ -191,7 +175,7 @@ def evaluate_prompt(
     for i, example in enumerate(examples, 1):
         result = run_prompt_on_example(prompt_template, example, llm)
 
-        if not result["user_story"]:
+        if not result["answer"]:
             print(f"      [{i}/{len(examples)}] ⚠️  Resposta vazia, pulando.")
             continue
 
@@ -202,18 +186,16 @@ def evaluate_prompt(
 
         print(
             f"      [{i}/{len(examples)}] "
+            f"Help:{scores['helpfulness']:.2f} "
+            f"Corr:{scores['correctness']:.2f} "
             f"F1:{scores['f1_score']:.2f} "
-            f"Tone:{scores['tone_score']:.2f} "
-            f"Criteria:{scores['acceptance_criteria_score']:.2f} "
-            f"Format:{scores['user_story_format_score']:.2f} "
-            f"Complete:{scores['completeness_score']:.2f}"
+            f"Clar:{scores['clarity']:.2f} "
+            f"Prec:{scores['precision']:.2f}"
         )
 
-        # Pausa entre exemplos para respeitar rate limits do Gemini (15 req/min)
         if i < len(examples):
             time.sleep(25)
 
-    # Médias finais
     return {
         key: round(sum(vals) / len(vals), 4) if vals else 0.0
         for key, vals in all_scores.items()
@@ -223,24 +205,22 @@ def evaluate_prompt(
 # ── Exibição de resultados ────────────────────────────────────────────────────
 
 def display_results(prompt_name: str, scores: Dict[str, float]) -> bool:
-    """Exibe os resultados e retorna True se TODAS as métricas >= 0.9."""
     print("\n" + "=" * 50)
     print(f"Prompt: {prompt_name}")
     print("=" * 50)
 
     metric_labels = {
-        "f1_score": "F1-Score",
-        "tone_score": "Tone Score",
-        "acceptance_criteria_score": "Acceptance Criteria Score",
-        "user_story_format_score": "User Story Format Score",
-        "completeness_score": "Completeness Score",
+        "helpfulness": "Helpfulness",
+        "correctness": "Correctness",
+        "f1_score":    "F1-Score",
+        "clarity":     "Clarity",
+        "precision":   "Precision",
     }
 
     all_passed = True
     for key, label in metric_labels.items():
         score = scores.get(key, 0.0)
-        passed = score >= MINIMUM_SCORE
-        if not passed:
+        if score < MINIMUM_SCORE:
             all_passed = False
         print(f"  - {label}: {format_score(score, threshold=MINIMUM_SCORE)}")
 
@@ -249,18 +229,12 @@ def display_results(prompt_name: str, scores: Dict[str, float]) -> bool:
     print(f"📊 MÉDIA GERAL: {average:.4f}")
     print("-" * 50)
 
-    # Critério do desafio: TODAS as métricas >= 0.9
     if all_passed:
         print(f"\n✅ STATUS: APROVADO — todas as métricas >= {MINIMUM_SCORE}")
     else:
-        failed = [
-            metric_labels[k] for k, v in scores.items() if v < MINIMUM_SCORE
-        ]
+        failed = [metric_labels[k] for k, v in scores.items() if v < MINIMUM_SCORE]
         print(f"\n❌ STATUS: REPROVADO")
         print(f"   Métricas abaixo de {MINIMUM_SCORE}: {', '.join(failed)}")
-        print(f"\n   → Ajuste o prompt em prompts/bug_to_user_story_v2.yml")
-        print(f"   → Faça push: python src/push_prompts.py")
-        print(f"   → Avalie novamente: python src/evaluate.py")
 
     return all_passed
 
@@ -270,17 +244,16 @@ def display_results(prompt_name: str, scores: Dict[str, float]) -> bool:
 def main() -> int:
     print_section_header("AVALIAÇÃO DE PROMPTS — DESAFIO MBA IA")
 
-    provider = os.getenv("LLM_PROVIDER", "openai")
-    llm_model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+    provider   = os.getenv("LLM_PROVIDER", "openai")
+    llm_model  = os.getenv("LLM_MODEL", "gpt-4o-mini")
     eval_model = os.getenv("EVAL_MODEL", "gpt-4o")
-    username = os.getenv("USERNAME_LANGSMITH_HUB", "")
+    username   = os.getenv("USERNAME_LANGSMITH_HUB", "")
 
     print(f"Provider:           {provider}")
     print(f"Modelo principal:   {llm_model}")
     print(f"Modelo avaliação:   {eval_model}")
     print(f"LangSmith username: {username or '⚠️  não configurado'}")
 
-    # Variáveis obrigatórias
     required_vars = ["LANGSMITH_API_KEY", "USERNAME_LANGSMITH_HUB", "LLM_PROVIDER"]
     if provider == "openai":
         required_vars.append("OPENAI_API_KEY")
@@ -290,7 +263,6 @@ def main() -> int:
     if not check_env_vars(required_vars):
         return 1
 
-    # Dataset
     jsonl_path = "datasets/bug_to_user_story.jsonl"
     if not Path(jsonl_path).exists():
         print(f"\n❌ Dataset não encontrado: {jsonl_path}")
@@ -301,9 +273,7 @@ def main() -> int:
     dataset_name = f"{project_name}-eval"
     create_evaluation_dataset(client, dataset_name, jsonl_path)
 
-    # Prompts a avaliar — apenas o nome sem username (pull_prompt adiciona automaticamente)
     prompts_to_evaluate = ["bug_to_user_story_v2"]
-
     results_summary = []
     all_passed = True
 
@@ -318,14 +288,10 @@ def main() -> int:
             all_passed = False
             results_summary.append({
                 "prompt": prompt_name,
-                "scores": {k: 0.0 for k in [
-                    "f1_score", "tone_score", "acceptance_criteria_score",
-                    "user_story_format_score", "completeness_score"
-                ]},
+                "scores": {k: 0.0 for k in ["helpfulness", "correctness", "f1_score", "clarity", "precision"]},
                 "passed": False,
             })
 
-    # Resumo final
     print("\n" + "=" * 50)
     print("RESUMO FINAL")
     print("=" * 50)
@@ -339,7 +305,6 @@ def main() -> int:
         return 0
     else:
         print(f"\n⚠️  Nem todos os prompts atingiram {MINIMUM_SCORE} em todas as métricas.")
-        print("   Itere sobre o prompt e avalie novamente.")
         return 1
 
 
