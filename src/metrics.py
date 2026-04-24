@@ -56,43 +56,75 @@ def evaluate_helpfulness(question: str, answer: str, reference: str) -> Dict[str
     - Vai além do mínimo e agrega valor?
     """
     evaluator_prompt = f"""
-Você é um avaliador especializado em medir a UTILIDADE de respostas geradas por IA.
+Você é um avaliador especializado em medir a UTILIDADE de respostas geradas por IA,
+com foco em tarefas de conversão de Bug Reports em User Stories ágeis.
 
-PERGUNTA / TAREFA DO USUÁRIO:
+TAREFA DO USUÁRIO (Bug Report de entrada):
 {question}
 
-RESPOSTA GERADA PELO MODELO:
+RESPOSTA GERADA PELO MODELO (User Story produzida):
 {answer}
 
-RESPOSTA ESPERADA (Referência):
+RESPOSTA ESPERADA (User Story de referência):
 {reference}
 
-INSTRUÇÕES:
+INSTRUÇÕES DE AVALIAÇÃO:
 
-Avalie a HELPFULNESS (utilidade) da resposta gerada:
+Avalie a HELPFULNESS (utilidade) da resposta gerada considerando o contexto de
+transformação de bug reports em user stories para times de desenvolvimento ágil.
 
-1. RELEVÂNCIA (0.0 a 1.0):
-   - A resposta aborda diretamente o que foi pedido?
-   - É pertinente à tarefa do usuário?
+CRITÉRIO 1 — RELEVÂNCIA (0.0 a 1.0):
+  Pontuação ALTA (0.8–1.0): A resposta aborda diretamente o problema descrito no bug
+  report, transformando-o em uma user story acionável para o time.
+  Pontuação MÉDIA (0.5–0.7): Aborda o problema mas perde algum aspecto relevante.
+  Pontuação BAIXA (0.0–0.4): Ignora elementos essenciais do bug report.
 
-2. COMPLETUDE (0.0 a 1.0):
-   - A resposta é completa o suficiente para ser útil?
-   - Cobre os aspectos essenciais sem omissões críticas?
+  ATENÇÃO: User Stories são artefatos com natureza criativa/interpretativa. Diferenças
+  de redação, persona escolhida ou nível de detalhe em relação à referência NÃO devem
+  penalizar a relevância, desde que o problema central seja endereçado.
 
-3. ACIONABILIDADE (0.0 a 1.0):
-   - O usuário consegue agir com base na resposta?
-   - A resposta é prática e aplicável?
+CRITÉRIO 2 — COMPLETUDE FUNCIONAL (0.0 a 1.0):
+  Pontuação ALTA (0.8–1.0): A user story possui os elementos essenciais (história no
+  formato padrão + critérios de aceitação) e um desenvolvedor conseguiria trabalhar
+  com ela sem informações adicionais sobre o problema principal.
+  Pontuação MÉDIA (0.5–0.7): Elementos presentes mas incompletos.
+  Pontuação BAIXA (0.0–0.4): Faltam elementos essenciais que inviabilizam o uso.
 
-4. VALOR AGREGADO (0.0 a 1.0):
-   - A resposta vai além do mínimo e agrega valor real?
-   - Inclui contexto ou detalhes que tornam a resposta mais útil?
+  ATENÇÃO: Não penalize por ausência de seções opcionais (tasks, notas extras) se o
+  núcleo da user story está presente e é suficiente para o time agir.
+
+CRITÉRIO 3 — ACIONABILIDADE (0.0 a 1.0):
+  Pontuação ALTA (0.8–1.0): Um time ágil consegue entender o problema, o impacto e
+  o que precisa ser corrigido/implementado com base nesta user story.
+  Pontuação MÉDIA (0.5–0.7): Acionável com pequenas dúvidas.
+  Pontuação BAIXA (0.0–0.4): Time não conseguiria trabalhar sem pedir esclarecimentos.
+
+CRITÉRIO 4 — VALOR AGREGADO (0.0 a 1.0):
+  Pontuação ALTA (0.8–1.0): A resposta agrega valor real: traduz o bug em valor de
+  negócio para o usuário, contextualiza o impacto, ou fornece critérios de aceitação
+  que vão além de simplesmente "o bug não deve ocorrer".
+  Pontuação MÉDIA (0.5–0.7): Algum valor agregado mas poderia ser mais rico.
+  Pontuação BAIXA (0.0–0.4): Apenas transcreve o bug sem transformá-lo em valor.
+
+  ATENÇÃO: Respostas com formato correto, história bem escrita e critérios de
+  aceitação claros devem receber pontuação ALTA neste critério, mesmo que a referência
+  tenha uma abordagem ligeiramente diferente.
 
 Calcule a MÉDIA dos 4 critérios para obter o score final.
+
+CALIBRAÇÃO IMPORTANTE:
+- Uma user story bem estruturada, com formato correto, critérios de aceitação claros
+  e que endereça o problema do bug report DEVE receber score >= 0.85.
+- Penalize significativamente apenas quando: (a) o problema central do bug não é
+  endereçado, (b) os critérios de aceitação são ausentes ou completamente vagos,
+  ou (c) a resposta é inutilizável por um time ágil.
+- Diferenças estilísticas ou de abordagem em relação à referência NÃO são motivo
+  de penalização severa.
 
 IMPORTANTE: Retorne APENAS um objeto JSON válido no formato:
 {{
   "score": <valor entre 0.0 e 1.0>,
-  "reasoning": "<explicação em até 100 palavras>"
+  "reasoning": "<explicação em até 120 palavras justificando os 4 critérios>"
 }}
 
 NÃO adicione nenhum texto antes ou depois do JSON.
@@ -120,43 +152,82 @@ def evaluate_correctness(question: str, answer: str, reference: str) -> Dict[str
     - Os fatos, dados e detalhes são precisos?
     """
     evaluator_prompt = f"""
-Você é um avaliador especializado em medir a CORREÇÃO FACTUAL de respostas geradas por IA.
+Você é um avaliador especializado em medir a CORREÇÃO de User Stories derivadas de
+Bug Reports, comparando a resposta gerada com uma User Story de referência.
 
-PERGUNTA / TAREFA DO USUÁRIO:
+BUG REPORT (entrada):
 {question}
 
-RESPOSTA ESPERADA (Ground Truth):
+USER STORY DE REFERÊNCIA (Ground Truth):
 {reference}
 
-RESPOSTA GERADA PELO MODELO:
+USER STORY GERADA PELO MODELO (a ser avaliada):
 {answer}
 
-INSTRUÇÕES:
+INSTRUÇÕES DE AVALIAÇÃO:
 
-Avalie a CORRECTNESS (correção) da resposta gerada comparando-a com o ground truth:
+Avalie a CORRECTNESS (correção) da user story gerada comparando-a com a referência.
 
-1. PRECISÃO FACTUAL (0.0 a 1.0):
-   - As informações estão corretas quando comparadas à referência?
-   - Não há erros de fato, dados incorretos ou imprecisões?
+CONTEXTO FUNDAMENTAL: User Stories são artefatos de comunicação com natureza
+interpretativa. Duas user stories podem ser igualmente corretas mesmo tendo redações,
+personas ou estruturas diferentes, desde que ambas capturem fielmente o problema
+descrito no bug report e o transformem em valor para o usuário.
 
-2. AUSÊNCIA DE CONTRADIÇÕES (0.0 a 1.0):
-   - A resposta não contradiz nenhum ponto do ground truth?
-   - É consistente com o que era esperado?
+O objetivo desta métrica é verificar se a user story gerada está ALINHADA com o
+que a referência representa — não se é uma cópia textual dela.
 
-3. COBERTURA DAS INFORMAÇÕES CORRETAS (0.0 a 1.0):
-   - As informações corretas presentes na referência também aparecem na resposta?
-   - Informações-chave do ground truth estão representadas corretamente?
+CRITÉRIO 1 — FIDELIDADE AO PROBLEMA DO BUG (0.0 a 1.0):
+  Pontuação ALTA (0.8–1.0): A user story gerada captura o mesmo problema central
+  descrito no bug report que a referência endereça. O problema não é distorcido,
+  exagerado ou minimizado em relação ao que foi reportado.
+  Pontuação MÉDIA (0.5–0.7): Captura o problema mas com alguma imprecisão.
+  Pontuação BAIXA (0.0–0.4): Descreve um problema diferente do bug report.
 
-4. AUSÊNCIA DE DISTORÇÕES (0.0 a 1.0):
-   - A resposta não distorce ou reinterpreta incorretamente o que foi pedido?
-   - O sentido das informações é preservado fielmente?
+CRITÉRIO 2 — AUSÊNCIA DE CONTRADIÇÕES COM A REFERÊNCIA (0.0 a 1.0):
+  Pontuação ALTA (0.8–1.0): A user story gerada não contradiz nenhum aspecto
+  factual presente na referência (ex: não inverte o comportamento esperado, não
+  atribui o problema a um componente diferente do que a referência indica).
+  Pontuação MÉDIA (0.5–0.7): Pequenas divergências não críticas.
+  Pontuação BAIXA (0.0–0.4): Contradições diretas com fatos da referência.
+
+  ATENÇÃO: Diferenças de abordagem (ex: referência usa "administrador" e a gerada
+  usa "usuário") NÃO são contradições se ambas são interpretações válidas do bug
+  report. Só penalize contradições factuais diretas.
+
+CRITÉRIO 3 — COBERTURA DOS ELEMENTOS ESSENCIAIS (0.0 a 1.0):
+  Pontuação ALTA (0.8–1.0): Os elementos essenciais da referência estão representados
+  na resposta gerada — o tipo de problema, o contexto do usuário afetado, e o
+  comportamento esperado após a correção.
+  Pontuação MÉDIA (0.5–0.7): A maioria dos elementos está presente.
+  Pontuação BAIXA (0.0–0.4): Elementos essenciais da referência foram ignorados.
+
+  ATENÇÃO: "Representados" não significa "copiados". A user story gerada pode
+  expressar os mesmos elementos com palavras diferentes e ainda receber score alto.
+
+CRITÉRIO 4 — PRECISÃO DOS CRITÉRIOS DE ACEITAÇÃO (0.0 a 1.0):
+  Pontuação ALTA (0.8–1.0): Os critérios de aceitação gerados são compatíveis com
+  os da referência em termos de comportamento esperado — mesmo que usem formatação
+  ou redação diferente. Cobrem o cenário principal de correção do bug.
+  Pontuação MÉDIA (0.5–0.7): Critérios parcialmente alinhados.
+  Pontuação BAIXA (0.0–0.4): Critérios de aceitação ausentes, incompatíveis ou
+  que descrevem comportamentos opostos aos da referência.
 
 Calcule a MÉDIA dos 4 critérios para obter o score final.
+
+CALIBRAÇÃO IMPORTANTE:
+- Uma user story que captura o problema central do bug e tem critérios de aceitação
+  coerentes com a referência DEVE receber score >= 0.85, mesmo com redação diferente.
+- Penalize com score < 0.6 apenas quando: (a) o problema descrito é factualmente
+  errado em relação ao bug report, (b) os critérios de aceitação contradizem a
+  referência ou (c) elementos centrais da referência estão completamente ausentes.
+- NÃO penalize por: escolha diferente de persona, ordem diferente de critérios,
+  nível de detalhe diferente (mais ou menos verboso que a referência), ou ausência
+  de seções opcionais presentes na referência.
 
 IMPORTANTE: Retorne APENAS um objeto JSON válido no formato:
 {{
   "score": <valor entre 0.0 e 1.0>,
-  "reasoning": "<explicação em até 100 palavras citando exemplos concretos>"
+  "reasoning": "<explicação em até 120 palavras citando exemplos concretos>"
 }}
 
 NÃO adicione nenhum texto antes ou depois do JSON.
@@ -180,36 +251,71 @@ def evaluate_f1_score(question: str, answer: str, reference: str) -> Dict[str, A
     F1 = 2 * (Precision * Recall) / (Precision + Recall)
     """
     evaluator_prompt = f"""
-Você é um avaliador especializado em medir a qualidade de respostas geradas por IA.
+Você é um avaliador especializado em medir qualidade de User Stories derivadas de
+Bug Reports, calculando PRECISION e RECALL para determinar o F1-Score.
 
-Sua tarefa é calcular PRECISION e RECALL para determinar o F1-Score.
-
-PERGUNTA DO USUÁRIO:
+BUG REPORT (entrada):
 {question}
 
-RESPOSTA ESPERADA (Ground Truth):
+USER STORY DE REFERÊNCIA (Ground Truth):
 {reference}
 
-RESPOSTA GERADA PELO MODELO:
+USER STORY GERADA PELO MODELO (a ser avaliada):
 {answer}
+
+CONTEXTO: User Stories são artefatos com natureza interpretativa. Precision e Recall
+devem medir qualidade de conteúdo e cobertura, não similaridade textual com a referência.
 
 INSTRUÇÕES:
 
-1. PRECISION (0.0 a 1.0):
-   - Quantas informações na resposta gerada são CORRETAS e RELEVANTES?
-   - Penalizar informações incorretas, inventadas ou desnecessárias
-   - 1.0 = todas informações são corretas e relevantes
+PRECISION (0.0 a 1.0) — "O que foi gerado é válido e relevante?"
+  Meça que proporção do conteúdo da user story GERADA é:
+  (a) factualmente correto em relação ao bug report,
+  (b) relevante para o problema reportado,
+  (c) livre de informações inventadas ou contraditórias.
 
-2. RECALL (0.0 a 1.0):
-   - Quantas informações da resposta esperada estão PRESENTES na resposta gerada?
-   - Penalizar informações importantes que foram omitidas
-   - 1.0 = todas informações importantes estão presentes
+  Pontuação ALTA (0.85–1.0): Quase todo o conteúdo gerado é correto, relevante e
+    fundamentado no bug report. Pequenas diferenças de estilo em relação à referência
+    NÃO reduzem a precision.
+  Pontuação MÉDIA (0.6–0.84): Maioria do conteúdo correto, mas há elementos
+    questionáveis, vagos ou marginalmente relevantes.
+  Pontuação BAIXA (0.0–0.59): Conteúdo significativo é incorreto, inventado ou
+    irrelevante para o problema do bug report.
+
+  ATENÇÃO: Informações adicionais corretas (ex: critérios de aceitação extras,
+  contexto adicional válido) NÃO penalizam a precision — só penalize conteúdo
+  incorreto ou irrelevante.
+
+RECALL (0.0 a 1.0) — "O que era importante foi capturado?"
+  Meça que proporção das INFORMAÇÕES ESSENCIAIS da referência estão presentes
+  (mesmo que com redação diferente) na user story gerada:
+  (a) o problema central do bug está representado,
+  (b) o usuário/persona afetada está identificada,
+  (c) o comportamento esperado após correção está descrito,
+  (d) os principais critérios de aceitação estão cobertos.
+
+  Pontuação ALTA (0.85–1.0): Todos ou quase todos os elementos essenciais da
+    referência estão representados na user story gerada, mesmo que expressos
+    de forma diferente.
+  Pontuação MÉDIA (0.6–0.84): Maioria dos elementos essenciais presentes, mas
+    alguns aspectos importantes foram omitidos.
+  Pontuação BAIXA (0.0–0.59): Elementos centrais da referência estão ausentes.
+
+  ATENÇÃO: "Representado" ≠ "copiado". Se a referência diz "usuário não consegue
+  fazer login" e a gerada diz "usuário é impedido de acessar o sistema", o elemento
+  está presente. Avalie semântica, não similaridade textual.
+
+CALIBRAÇÃO:
+- Uma user story bem formada que cobre o problema central do bug e tem critérios
+  de aceitação coerentes deve ter Precision >= 0.85 e Recall >= 0.85.
+- Só aplique scores baixos quando há erros factuais claros (Precision) ou quando
+  elementos centrais do bug foram completamente ignorados (Recall).
 
 IMPORTANTE: Retorne APENAS um objeto JSON válido no formato:
 {{
   "precision": <valor entre 0.0 e 1.0>,
   "recall": <valor entre 0.0 e 1.0>,
-  "reasoning": "<sua explicação em até 100 palavras>"
+  "reasoning": "<sua explicação em até 120 palavras justificando ambos os valores>"
 }}
 
 NÃO adicione nenhum texto antes ou depois do JSON.
