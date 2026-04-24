@@ -194,7 +194,7 @@ def evaluate_prompt(
         )
 
         if i < len(examples):
-            time.sleep(25)
+            time.sleep(1)
 
     return {
         key: round(sum(vals) / len(vals), 4) if vals else 0.0
